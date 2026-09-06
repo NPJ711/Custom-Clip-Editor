@@ -35,6 +35,16 @@
         <Border x:Name="SelectionBand" Height="8" CornerRadius="4"
                 Background="#4CC2FF" Canvas.Top="58"/>
 
+        <!-- Full height so it reads as a playhead through the filmstrip.
+             Listed before the handles so it sits UNDER them: when a handle
+             snaps onto the playhead they overlap, and the handle has to stay
+             grabbable. The playhead is still draggable by its upper half,
+             which the handles never cover. -->
+        <Thumb x:Name="PlayheadThumb" Style="{StaticResource BlockThumb}"
+               Background="#F2F2F2" Width="8" Height="74" Canvas.Top="2" Cursor="SizeWE"
+               DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
+               DragDelta="PlayheadThumb_DragDelta"/>
+
         <Thumb x:Name="InThumb" Style="{StaticResource BlockThumb}"
                Background="#4CC2FF" Width="12" Height="28" Canvas.Top="48" Cursor="SizeWE"
                DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
@@ -45,10 +55,5 @@
                DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
                DragDelta="OutThumb_DragDelta"/>
 
-        <!-- Full height so it reads as a playhead through the filmstrip. -->
-        <Thumb x:Name="PlayheadThumb" Style="{StaticResource BlockThumb}"
-               Background="#F2F2F2" Width="8" Height="74" Canvas.Top="2" Cursor="SizeWE"
-               DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
-               DragDelta="PlayheadThumb_DragDelta"/>
     </Canvas>
 </UserControl>

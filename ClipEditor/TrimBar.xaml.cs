@@ -15,12 +15,25 @@ namespace ClipEditor
     {
         private const double EdgePaddingPx = 8.0;   // keeps handles inside the control
         private const double MinGapSeconds = 0.05;  // in and out can't collapse onto each other
+        private const double SnapPixels = 7.0;      // how close a handle must get to snap
         private const double StripTopPx = 2.0;      // filmstrip band, matches TrimBar.xaml
         private const double StripHeightPx = 46.0;
 
         // Frame thumbnails drawn behind the track, laid out left to right
         // across the full duration.
         private readonly List<Image> _thumbnailImages = new List<Image>();
+
+        private static readonly SolidColorBrush PlayheadBrush =
+            CreateFrozenBrush(0xF2, 0xF2, 0xF2);
+        private static readonly SolidColorBrush PlayheadSnappedBrush =
+            CreateFrozenBrush(0x4C, 0xC2, 0xFF);
+
+        private static SolidColorBrush CreateFrozenBrush(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
+        }
 
         public TrimBar()
         {
@@ -175,15 +188,44 @@ namespace ClipEditor
 
         private void Thumb_DragStarted(object sender, DragStartedEventArgs e) => IsUserDragging = true;
 
-        private void Thumb_DragCompleted(object sender, DragCompletedEventArgs e) => IsUserDragging = false;
+        private void Thumb_DragCompleted(object sender, DragCompletedEventArgs e)
+        {
+            IsUserDragging = false;
+            ShowSnapped(false);
+        }
+
+        // Pulls a handle exactly onto the playhead when it gets within a few
+        // pixels, so "cut where I am watching" doesn't need pixel-hunting.
+        // Only snaps when the playhead is somewhere the handle may legally go.
+        private double SnapToPlayhead(double seconds, double min, double max)
+        {
+            if (Duration <= 0 || Position < min || Position > max)
+                return seconds;
+
+            if (Math.Abs(SecondsToX(seconds) - SecondsToX(Position)) > SnapPixels)
+                return seconds;
+
+            return Position;
+        }
+
+        // Tints the playhead while a handle is locked onto it, so the snap is
+        // visible rather than something you only feel.
+        private void ShowSnapped(bool snapped)
+        {
+            PlayheadThumb.Background = snapped ? PlayheadSnappedBrush : PlayheadBrush;
+        }
 
         private void InThumb_DragDelta(object sender, DragDeltaEventArgs e)
         {
             if (Duration <= 0)
                 return;
 
-            double next = Clamp(InPoint + PixelsToSeconds(e.HorizontalChange),
-                0, OutPoint - MinGapSeconds);
+            double max = OutPoint - MinGapSeconds;
+            double next = Clamp(InPoint + PixelsToSeconds(e.HorizontalChange), 0, max);
+
+            double snapped = SnapToPlayhead(next, 0, max);
+            ShowSnapped(snapped != next);
+            next = snapped;
 
             InPoint = next;
             ScrubPreview?.Invoke(this, next);
@@ -195,8 +237,12 @@ namespace ClipEditor
             if (Duration <= 0)
                 return;
 
-            double next = Clamp(OutPoint + PixelsToSeconds(e.HorizontalChange),
-                InPoint + MinGapSeconds, Duration);
+            double min = InPoint + MinGapSeconds;
+            double next = Clamp(OutPoint + PixelsToSeconds(e.HorizontalChange), min, Duration);
+
+            double snapped = SnapToPlayhead(next, min, Duration);
+            ShowSnapped(snapped != next);
+            next = snapped;
 
             OutPoint = next;
             ScrubPreview?.Invoke(this, next);

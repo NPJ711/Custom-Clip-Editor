@@ -993,7 +993,7 @@ namespace ClipEditor
                         totalDuration)
                     .ProcessAsynchronously();
 
-                MessageBox.Show("Exported to " + saveDialog.FileName);
+                RevealInExplorer(saveDialog.FileName);
             }
             catch (OperationCanceledException)
             {
@@ -1140,7 +1140,7 @@ namespace ClipEditor
                         totalDuration)
                     .ProcessAsynchronously();
 
-                MessageBox.Show("Audio exported to " + saveDialog.FileName);
+                RevealInExplorer(saveDialog.FileName);
             }
             catch (OperationCanceledException)
             {
@@ -1385,6 +1385,26 @@ namespace ClipEditor
 
         // Deletes a file and quietly ignores it if that fails (e.g. the
         // file is still briefly locked) rather than crashing the app.
+        // Pops the finished file up in Explorer, already selected. More
+        // useful than a dialog the user has to dismiss before they can get
+        // at the file anyway.
+        private static void RevealInExplorer(string filePath)
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe")
+                {
+                    Arguments = "/select,\"" + filePath + "\"",
+                    UseShellExecute = true,
+                });
+            }
+            catch
+            {
+                // If Explorer will not open, at least say where the file went.
+                MessageBox.Show("Exported to " + filePath);
+            }
+        }
+
         private static void TryDeleteFile(string path)
         {
             try
