@@ -277,11 +277,7 @@ namespace ClipEditor
             else
             {
                 _ffmpegReady = false;
-                MessageBox.Show(
-                    "Couldn't find ffmpeg.exe.\n\n" +
-                    "Install FFmpeg and either add its bin folder to your PATH, or set " +
-                    "\"FfmpegBinFolder\" in:\n\n" + AppSettings.SettingsPath,
-                    "FFmpeg not found");
+                ShowFfmpegHelp();
             }
 
             UpdateExportButtons();
@@ -299,6 +295,16 @@ namespace ClipEditor
 
             if (HasFfmpeg(configured))
                 return configured;
+
+            // Alongside the app itself, so the binaries can simply be
+            // dropped into the folder without installing anything.
+            string appFolder = AppContext.BaseDirectory;
+            if (HasFfmpeg(appFolder))
+                return appFolder;
+
+            string bundled = Path.Combine(appFolder, "ffmpeg");
+            if (HasFfmpeg(bundled))
+                return bundled;
 
             string[] candidates =
             {
@@ -1161,16 +1167,37 @@ namespace ClipEditor
             CancelExportButton.IsEnabled = false;
         }
 
+        // FFmpeg is a hard requirement and most people will not have it, so
+        // say exactly how to get it rather than just reporting the failure.
+        private static void ShowFfmpegHelp()
+        {
+            const string installCommand = "winget install Gyan.FFmpeg";
+
+            var answer = MessageBox.Show(
+                "Custom Clip Editor needs FFmpeg to trim and export video.\n\n" +
+                "Install it by running this in PowerShell or Windows Terminal:\n\n" +
+                "    " + installCommand + "\n\n" +
+                "...then restart the app.\n\n" +
+                "You can also drop ffmpeg.exe next to ClipEditor.exe, or set " +
+                "\"FfmpegBinFolder\" in:\n" + AppSettings.SettingsPath + "\n\n" +
+                "Copy the install command to your clipboard?",
+                "FFmpeg not found",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Information);
+
+            if (answer == MessageBoxResult.Yes)
+            {
+                try { Clipboard.SetText(installCommand); }
+                catch { /* the clipboard can be locked by another app */ }
+            }
+        }
+
         private bool EnsureFfmpegReady()
         {
             if (_ffmpegReady)
                 return true;
 
-            MessageBox.Show(
-                "FFmpeg isn't set up yet.\n\n" +
-                "Add its bin folder to your PATH, or set \"FfmpegBinFolder\" in:\n\n" +
-                AppSettings.SettingsPath,
-                "FFmpeg not found");
+            ShowFfmpegHelp();
             return false;
         }
 

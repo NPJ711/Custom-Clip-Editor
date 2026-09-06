@@ -9,3 +9,6 @@ obj/
 
 # Local standalone publish the desktop shortcut launches
 app/
+
+# Release output
+dist/
