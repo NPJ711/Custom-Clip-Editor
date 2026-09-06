@@ -1,0 +1,11 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Local standalone publish the desktop shortcut launches
+app/

@@ -1,0 +1,54 @@
+<UserControl x:Class="ClipEditor.TrimBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Height="80" MinWidth="200"
+             Background="Transparent"
+             SizeChanged="OnSizeChanged">
+
+    <UserControl.Resources>
+        <!-- Thumbs get no visible chrome by default, so draw them ourselves. -->
+        <Style x:Key="BlockThumb" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="3"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <!-- Z-order runs bottom to top. Generated thumbnails are inserted at
+         index 0 at runtime, so they always sit behind everything here. -->
+    <Canvas x:Name="RootCanvas" Background="Transparent" ClipToBounds="True"
+            MouseLeftButtonDown="RootCanvas_MouseLeftButtonDown">
+
+        <!-- Shades the filmstrip outside the in/out selection. -->
+        <Rectangle x:Name="DimLeft" Fill="#B0000000" Canvas.Top="2" Height="46"
+                   IsHitTestVisible="False"/>
+        <Rectangle x:Name="DimRight" Fill="#B0000000" Canvas.Top="2" Height="46"
+                   IsHitTestVisible="False"/>
+
+        <Border x:Name="Track" Height="8" CornerRadius="4"
+                Background="#333333" Canvas.Top="58"/>
+
+        <Border x:Name="SelectionBand" Height="8" CornerRadius="4"
+                Background="#4CC2FF" Canvas.Top="58"/>
+
+        <Thumb x:Name="InThumb" Style="{StaticResource BlockThumb}"
+               Background="#4CC2FF" Width="12" Height="28" Canvas.Top="48" Cursor="SizeWE"
+               DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
+               DragDelta="InThumb_DragDelta"/>
+
+        <Thumb x:Name="OutThumb" Style="{StaticResource BlockThumb}"
+               Background="#4CC2FF" Width="12" Height="28" Canvas.Top="48" Cursor="SizeWE"
+               DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
+               DragDelta="OutThumb_DragDelta"/>
+
+        <!-- Full height so it reads as a playhead through the filmstrip. -->
+        <Thumb x:Name="PlayheadThumb" Style="{StaticResource BlockThumb}"
+               Background="#F2F2F2" Width="8" Height="74" Canvas.Top="2" Cursor="SizeWE"
+               DragStarted="Thumb_DragStarted" DragCompleted="Thumb_DragCompleted"
+               DragDelta="PlayheadThumb_DragDelta"/>
+    </Canvas>
+</UserControl>
