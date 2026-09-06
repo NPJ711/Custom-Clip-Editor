@@ -5,6 +5,7 @@
         xmlns:vlc="clr-namespace:LibVLCSharp.WPF;assembly=LibVLCSharp.WPF"
         xmlns:local="clr-namespace:ClipEditor"
         Title="Clip Editor" Height="880" Width="950"
+        Icon="Assets/AppIcon.ico"
         AllowDrop="True"
         DragOver="Window_DragOver"
         Drop="Window_Drop"
@@ -16,7 +17,11 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="Clip Editor"/>
+        <ui:TitleBar Grid.Row="0" Title="Clip Editor">
+            <ui:TitleBar.Icon>
+                <ui:ImageIcon Source="Assets/AppIcon.ico"/>
+            </ui:TitleBar.Icon>
+        </ui:TitleBar>
 
         <Grid Grid.Row="1">
             <Grid.RowDefinitions>
