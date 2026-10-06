@@ -35,9 +35,12 @@ namespace ClipEditor
         private string _ffmpegBinFolder;
         private bool _ffmpegReady;
 
-        // Replaced with "h264_nvenc" once the startup probe confirms the
-        // machine has an NVIDIA encoder; otherwise we stay on the CPU codec.
-        private string _videoCodec = "libx264";
+        private const string NvidiaCodec = "h264_nvenc";
+        private const string CpuCodec = "libx264";
+
+        // Replaced with the NVIDIA encoder once the startup probe confirms it
+        // actually works here; otherwise we stay on the CPU codec.
+        private string _videoCodec = CpuCodec;
 
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
@@ -334,9 +337,23 @@ namespace ClipEditor
             return null;
         }
 
-        // h264_nvenc only exists on NVIDIA cards. Probe once at startup and
-        // fall back to libx264 everywhere else so the export still works.
+        // h264_nvenc only works on machines with an NVIDIA card and driver.
+        // Probe once at startup and fall back to libx264 everywhere else.
         private async Task DetectVideoEncoderAsync()
+        {
+            _videoCodec = await CanActuallyEncodeAsync(NvidiaCodec) ? NvidiaCodec : CpuCodec;
+        }
+
+        // Encodes a handful of throwaway frames to see whether the encoder
+        // really works on this machine.
+        //
+        // Asking ffmpeg to list its encoders is NOT enough: "-encoders" shows
+        // what ffmpeg was COMPILED with, and every stock Windows build ships
+        // with nvenc compiled in. Actually using it needs NVIDIA's driver
+        // (nvcuda.dll) at runtime, which a machine without an NVIDIA card does
+        // not have -- so the list says yes and the export then dies with
+        // "Cannot load nvcuda.dll". Only a real encode tells the truth.
+        private async Task<bool> CanActuallyEncodeAsync(string codec)
         {
             try
             {
@@ -344,7 +361,10 @@ namespace ClipEditor
                     ? Path.Combine(_ffmpegBinFolder, "ffmpeg.exe")
                     : "ffmpeg";
 
-                var psi = new ProcessStartInfo(exe, "-hide_banner -encoders")
+                var psi = new ProcessStartInfo(exe,
+                    "-hide_banner -loglevel error " +
+                    "-f lavfi -i nullsrc=s=256x256:d=0.1 " +
+                    $"-c:v {codec} -f null -")
                 {
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -353,15 +373,20 @@ namespace ClipEditor
                 };
 
                 using var proc = Process.Start(psi);
-                string output = await proc.StandardOutput.ReadToEndAsync();
-                await proc.WaitForExitAsync();
 
-                if (output.Contains("h264_nvenc"))
-                    _videoCodec = "h264_nvenc";
+                // Drain both pipes so a chatty failure can't deadlock us.
+                Task<string> stdout = proc.StandardOutput.ReadToEndAsync();
+                Task<string> stderr = proc.StandardError.ReadToEndAsync();
+
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+                await proc.WaitForExitAsync(timeout.Token);
+                await Task.WhenAll(stdout, stderr);
+
+                return proc.ExitCode == 0;
             }
             catch
             {
-                // Keep the libx264 default.
+                return false;
             }
         }
 
@@ -978,34 +1003,57 @@ namespace ClipEditor
             _exportCts = new CancellationTokenSource();
             SetExportInProgress(true, "Exporting video…");
 
+            // Try the hardware encoder first where we think we have one, but
+            // keep the CPU encoder in reserve: nvenc can still fail at the
+            // last moment (driver update, too many concurrent sessions), and
+            // falling back beats losing the export.
+            var codecs = _videoCodec == CpuCodec
+                ? new[] { CpuCodec }
+                : new[] { _videoCodec, CpuCodec };
+
+            bool exported = false;
+            bool canceled = false;
+            Exception failure = null;
+
             try
             {
-                await FFMpegArguments
-                    .FromFileInput(listFilePath, verifyExists: true,
-                        options => options
-                            .WithCustomArgument("-f concat")
-                            .WithCustomArgument("-safe 0"))
-                    .OutputToFile(saveDialog.FileName, overwrite: true,
-                        options => BuildVideoOutput(options, totalSeconds))
-                    .CancellableThrough(_exportCts.Token)
-                    .NotifyOnProgress(
-                        percent => Dispatcher.Invoke(() => ReportExportProgress(percent)),
-                        totalDuration)
-                    .ProcessAsynchronously();
+                foreach (string codec in codecs)
+                {
+                    try
+                    {
+                        await FFMpegArguments
+                            .FromFileInput(listFilePath, verifyExists: true,
+                                options => options
+                                    .WithCustomArgument("-f concat")
+                                    .WithCustomArgument("-safe 0"))
+                            .OutputToFile(saveDialog.FileName, overwrite: true,
+                                options => BuildVideoOutput(options, totalSeconds, codec))
+                            .CancellableThrough(_exportCts.Token)
+                            .NotifyOnProgress(
+                                percent => Dispatcher.Invoke(() => ReportExportProgress(percent)),
+                                totalDuration)
+                            .ProcessAsynchronously();
 
-                RevealInExplorer(saveDialog.FileName);
-            }
-            catch (OperationCanceledException)
-            {
-                TryDeleteFile(saveDialog.FileName);
-                MessageBox.Show("Export canceled.");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show("Export failed: " + ex.Message +
-                    "\n\nThis works best when all your queued clips share the same " +
-                    "resolution and frame rate, which is normally true for your own " +
-                    "gameplay captures.");
+                        exported = true;
+                        _videoCodec = codec; // remember what actually worked
+                        break;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        canceled = true;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex;
+
+                        if (codec != codecs[^1])
+                        {
+                            Dispatcher.Invoke(() =>
+                                SetExportInProgress(true, "Retrying without hardware encoding…"));
+                        }
+                    }
+                }
             }
             finally
             {
@@ -1014,12 +1062,53 @@ namespace ClipEditor
                 _exportCts = null;
                 TryDeleteFile(listFilePath);
             }
+
+            // Reported after the progress panel is cleared, so a dialog never
+            // sits on top of a stale progress bar.
+            if (canceled)
+            {
+                TryDeleteFile(saveDialog.FileName);
+                MessageBox.Show("Export canceled.");
+            }
+            else if (exported)
+            {
+                RevealInExplorer(saveDialog.FileName);
+            }
+            else
+            {
+                TryDeleteFile(saveDialog.FileName);
+                MessageBox.Show(
+                    "Export failed.\n\n" + Summarize(failure) +
+                    "\n\nThis works best when all your queued clips share the same " +
+                    "resolution and frame rate, which is normally true for your own " +
+                    "gameplay captures.",
+                    "Export failed");
+            }
         }
 
-        private void BuildVideoOutput(FFMpegArgumentOptions options, double totalSeconds)
+        // FFmpeg failures arrive as its entire console output, which fills the
+        // screen and buries the useful part. Keep the last few lines.
+        private static string Summarize(Exception error)
+        {
+            if (error == null)
+                return "No further details.";
+
+            var lines = error.Message
+                .Split('\n')
+                .Select(l => l.TrimEnd('\r', ' '))
+                .Where(l => l.Length > 0)
+                .ToList();
+
+            if (lines.Count <= 6)
+                return string.Join("\n", lines);
+
+            return "…\n" + string.Join("\n", lines.Skip(lines.Count - 6));
+        }
+
+        private void BuildVideoOutput(FFMpegArgumentOptions options, double totalSeconds, string codec)
         {
             options
-                .WithVideoCodec(_videoCodec)
+                .WithVideoCodec(codec)
                 .WithAudioCodec("aac")
                 .WithCustomArgument("-pix_fmt yuv420p");
 
@@ -1034,7 +1123,7 @@ namespace ClipEditor
                     .WithCustomArgument($"-bufsize {kbit * 2}k")
                     .WithCustomArgument($"-b:a {MontageAudioBitrateArg}");
 
-                if (_videoCodec == "libx264")
+                if (codec == CpuCodec)
                     options.WithCustomArgument("-preset veryfast");
             }
             else
@@ -1042,7 +1131,7 @@ namespace ClipEditor
                 // Full quality -- constant-quality encode, no size target.
                 options.WithCustomArgument("-b:a 192k");
 
-                if (_videoCodec == "libx264")
+                if (codec == CpuCodec)
                     options
                         .WithCustomArgument("-crf 20")
                         .WithCustomArgument("-preset veryfast");
